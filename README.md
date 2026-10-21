@@ -1,7 +1,7 @@
 # atx-sample-orders-api
 
 A standard **API Gateway + Lambda + DynamoDB** app (AWS SAM) used to prove the
-[AWS Transform continuous modernization factory](../aws-atx-continuous-modernization) end to end
+[AWS Transform continuous modernization factory](https://github.com/Keth77/aws-atx-continuous-modernization) end to end
 before pointing it at real application repos. Several functions intentionally run on **deprecated
 Lambda runtimes**.
 
@@ -23,28 +23,17 @@ GET  /health ─► HealthFn (python3.13, already current)                └─
 | `.aws/atx/skills/` | Project-level ATX client skill (conventions and validation steps for the agent). |
 | `buildspec-pr.yml` | PR validation: tests, cfn-lint, ATX plan guard. Reported to GitHub as a status check. |
 | `buildspec-build.yml` | Main-branch build: tests and `aws cloudformation package`. |
-| `pipeline/app-pipeline.yaml` | CodePipeline V2 (CodeConnections): main → dev → manual approval → prod, plus the PR validation project. |
+
+The CI/CD for this app (main → dev → manual approval → prod, plus the PR validation project) is defined in the
+factory stack: [aws-atx-continuous-modernization `infra/factory-pipeline.yaml`](https://github.com/Keth77/aws-atx-continuous-modernization/blob/main/infra/factory-pipeline.yaml).
+Deploy it with `SampleAppRepositoryId` set. Each deployed app stack (`atx-sample-orders-api-dev` / `-prod`) owns its
+own Lambda log group, so deleting a stack leaves nothing behind.
 
 ## Run locally
 
 ```bash
 python -m pip install -r requirements-dev.txt
 make test      # pytest + node --test + cfn-lint
-```
-
-## Deploy the pipeline (once)
-
-Prerequisites: an AVAILABLE CodeConnections GitHub connection, and the factory stack deployed (for `AtxFactoryBucket`).
-
-```bash
-aws cloudformation deploy \
-  --stack-name atx-sample-orders-api-pipeline \
-  --template-file pipeline/app-pipeline.yaml \
-  --capabilities CAPABILITY_IAM \
-  --parameter-overrides \
-    ConnectionArn=arn:aws:codeconnections:us-east-1:111122223333:connection/xxxx \
-    RepositoryId=my-org/atx-sample-orders-api \
-    AtxFactoryBucket=<factory ArtifactBucketName output>
 ```
 
 Pushing to `main` deploys `atx-sample-orders-api-dev`, waits for approval, then deploys `-prod`.

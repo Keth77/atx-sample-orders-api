@@ -9,4 +9,4 @@ node:
 	node --test tests/node/*.test.js
 
 lint:
-	cfn-lint template.yaml pipeline/app-pipeline.yaml
+	cfn-lint template.yaml

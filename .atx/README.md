@@ -1,7 +1,7 @@
 # `.atx/` — AWS Transform campaign settings for this repo
 
 This folder is how the repo owner controls what the central ATX factory
-([aws-atx-continuous-modernization](../../aws-atx-continuous-modernization)) does to this repo.
+([aws-atx-continuous-modernization](https://github.com/Keth77/aws-atx-continuous-modernization)) does to this repo.
 
 | File | Purpose |
 |---|---|
@@ -30,5 +30,5 @@ cat /tmp/atx-out/summary.md
 
 ## Enrolling (repo owner, one time)
 
-See the factory's [enrollment guide](../../aws-atx-continuous-modernization/docs/enrollment.md): ruleset on `main`,
+See the factory's [enrollment guide](https://github.com/Keth77/aws-atx-continuous-modernization/blob/main/docs/enrollment.md): ruleset on `main`,
 fine-grained PAT for this repo only, stored as `atx-factory/github/<owner>/<repo>` in Secrets Manager.

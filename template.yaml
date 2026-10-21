@@ -17,6 +17,10 @@ Globals:
     Timeout: 10
     Architectures: [arm64]
     Tracing: Active
+    LoggingConfig:
+      LogGroup: !Ref FunctionsLogGroup   # stack-owned, so deleting the stack leaves no log groups
+    Tags:
+      project: atx-poc
     Environment:
       Variables:
         TABLE_NAME: !Ref OrdersTable
@@ -24,6 +28,12 @@ Globals:
         LOG_LEVEL: INFO
 
 Resources:
+  FunctionsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AWS::StackName}"
+      RetentionInDays: 7
+
   OrdersTable:
     Type: AWS::DynamoDB::Table
     Properties:
