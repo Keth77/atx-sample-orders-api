@@ -1,0 +1,28 @@
+# Main-branch build: test, then package the SAM template for the CloudFormation deploy actions.
+version: 0.2
+
+env:
+  shell: bash
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.12
+      nodejs: 22
+    commands:
+      - python -m pip install -q -r requirements-dev.txt
+  build:
+    commands:
+      - python -m pytest -q tests/unit
+      - node --test tests/node/*.test.js
+      - cfn-lint template.yaml
+      - >-
+        aws cloudformation package
+        --template-file template.yaml
+        --s3-bucket "$ARTIFACT_BUCKET"
+        --s3-prefix packages
+        --output-template-file packaged.yaml
+
+artifacts:
+  files:
+    - packaged.yaml

@@ -1,0 +1,136 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Sample orders API (API Gateway + Lambda + DynamoDB) used to demo AWS Transform
+  continuous modernization. Several functions intentionally use deprecated runtimes.
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+
+Globals:
+  Function:
+    Runtime: python3.9          # deprecated 2025-12-15, inherited by CreateOrderFn, GetOrderFn, LegacyReportFn
+    MemorySize: 256
+    Timeout: 10
+    Architectures: [arm64]
+    Tracing: Active
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref OrdersTable
+        STAGE: !Ref Stage
+        LOG_LEVEL: INFO
+
+Resources:
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: orderId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: orderId
+          KeyType: HASH
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  CreateOrderFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/orders_api/
+      Handler: app.create_order
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+      Events:
+        Create:
+          Type: Api
+          Properties:
+            Path: /orders
+            Method: post
+
+  GetOrderFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/orders_api/
+      Handler: app.get_order
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref OrdersTable
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            Path: /orders/{orderId}
+            Method: get
+
+  ListOrdersFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/orders_api/
+      Handler: app.list_orders
+      Runtime: python3.10       # deprecated 2026-10-31
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref OrdersTable
+      Events:
+        List:
+          Type: Api
+          Properties:
+            Path: /orders
+            Method: get
+
+  HealthFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/health/
+      Handler: app.handler
+      Runtime: python3.13       # already current; must stay untouched
+      Events:
+        Health:
+          Type: Api
+          Properties:
+            Path: /health
+            Method: get
+
+  StreamNotifyFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/stream_notify/
+      Handler: index.handler
+      Runtime: nodejs18.x       # deprecated 2025-09-01
+      Events:
+        OrdersStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt OrdersTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 10
+
+  LegacyReportFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/legacy_report/
+      Handler: app.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref OrdersTable
+      Events:
+        Daily:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 day)
+
+Outputs:
+  ApiUrl:
+    Description: Orders API base URL
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+  OrdersTableName:
+    Value: !Ref OrdersTable

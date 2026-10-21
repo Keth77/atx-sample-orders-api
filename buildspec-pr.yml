@@ -1,0 +1,20 @@
+# Pull request validation (CodeBuild webhook via CodeConnections).
+# Reported back to GitHub as a commit status; make it a required check on main.
+version: 0.2
+
+env:
+  shell: bash
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.12
+      nodejs: 22
+    commands:
+      - python -m pip install -q -r requirements-dev.txt
+  build:
+    commands:
+      - python -m pytest -q tests/unit
+      - node --test tests/node/*.test.js
+      - cfn-lint template.yaml
+      - bash .atx/ci/atx-guard.sh

@@ -1,0 +1,7 @@
+# Runtime deprecation is governed by the ATX campaign (factory policy + check-plan guard),
+# not cfn-lint: its bundled dates lag AWS (block dates were extended to 2027), and with one
+# PR per transformation the other runtime family is legitimately still old on each branch.
+ignore_checks:
+  - E2531
+  - E2533
+  - W2531

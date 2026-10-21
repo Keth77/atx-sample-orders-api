@@ -1,0 +1,47 @@
+# Repo-level spec for the AWS Transform Lambda runtime campaign.
+# Merged onto the factory default spec (maps merge, lists replace) and validated
+# against the factory policy. Delete this file to use the defaults as-is.
+version: 1
+enabled: true
+
+iac:
+  type: sam
+  templates: ["template.yaml"]
+
+runtimeMap:
+  python3.9:  { target: python3.13, transformation: AWS/python-version-upgrade }
+  python3.10: { target: python3.13, transformation: AWS/python-version-upgrade }
+  nodejs18.x: { target: nodejs24.x, transformation: AWS/nodejs-version-upgrade }
+
+functions:
+  include: ["*"]
+  exclude:
+    - LegacyReportFn          # owned by the finance team, decommission planned
+  overrides:
+    ListOrdersFn:
+      target: python3.12      # pinned until the reporting client is certified on 3.13
+
+validation:
+  commands:
+    - "python -m pytest -q tests/unit"
+    - "node --test tests/node/*.test.js"
+    - "cfn-lint template.yaml"
+
+pr:
+  labels: ["atx", "lambda-runtime", "needs-review"]
+  reviewers: []               # e.g. ["alice", "my-org/orders-team"]
+
+additionalPlanContext: |
+  Keep boto3 / AWS SDK usage unchanged. Keep response shapes identical.
+
+# Extra guidance sent only to the PR for that transformation.
+transformationContext:
+  AWS/python-version-upgrade: |
+    Replace naive datetime.utcnow() with timezone-aware datetime.now(timezone.utc),
+    keeping the ISO-8601 "Z" suffix on createdAt. Use built-in generics (dict, list)
+    instead of typing.Dict / typing.List.
+  AWS/nodejs-version-upgrade: |
+    Keep CommonJS (require/exports); do not convert to ES modules.
+
+limits:
+  agentMinutes: 45
