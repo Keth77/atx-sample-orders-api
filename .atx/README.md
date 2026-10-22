@@ -31,4 +31,6 @@ cat /tmp/atx-out/summary.md
 ## Enrolling (repo owner, one time)
 
 See the factory's [enrollment guide](https://github.com/Keth77/aws-atx-continuous-modernization/blob/main/docs/enrollment.md): ruleset on `main`,
-fine-grained PAT for this repo only, stored as `atx-factory/github/<owner>/<repo>` in Secrets Manager.
+fine-grained PAT for this repo only, stored in Secrets Manager (`atx-factory/github/<owner>/<repo>`), and an entry in the
+factory's [`config/repos.yaml`](https://github.com/Keth77/aws-atx-continuous-modernization/blob/main/config/repos.yaml).
+The token reference lives there, not here: the factory needs the token before it can read this folder.
