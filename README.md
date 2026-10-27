@@ -26,7 +26,7 @@ GET  /health      ─► HealthFn      (python3.13, current)            └─�
 ## CI/CD
 
 The pipeline and PR check are created by the factory stack
-([`cicd/atx-factory.yaml`](https://github.com/Keth77/aws-atx-continuous-modernization/blob/main/cicd/atx-factory.yaml),
+([`infra/atx-factory.yaml`](https://github.com/Keth77/aws-atx-continuous-modernization/blob/main/infra/atx-factory.yaml),
 with `SampleAppRepositoryId` set), so this repo holds only code, buildspecs and `.atx/`.
 
 - Push to `main` → deploy stack `atx-sample-orders-api-dev` → manual approval → `atx-sample-orders-api-prod`
