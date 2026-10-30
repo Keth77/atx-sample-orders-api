@@ -1,15 +1,15 @@
 """Orders API handlers (create, get, list).
 
-Written in a Python 3.9-era style on purpose (typing aliases, datetime.utcnow) so the
-runtime upgrade has something real to modernize.
+Targets the python3.12+ Lambda runtimes shared by CreateOrderFn, GetOrderFn and
+ListOrdersFn: built-in generics and timezone-aware datetimes.
 """
 import json
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import boto3
 
@@ -32,7 +32,7 @@ def _json_default(value: Any) -> Any:
     raise TypeError(f"not serializable: {type(value)!r}")
 
 
-def _response(status: int, body: Any) -> Dict[str, Any]:
+def _response(status: int, body: Any) -> dict[str, Any]:
     return {
         "statusCode": status,
         "headers": {"Content-Type": "application/json"},
@@ -40,7 +40,7 @@ def _response(status: int, body: Any) -> Dict[str, Any]:
     }
 
 
-def _parse_body(event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _parse_body(event: dict[str, Any]) -> dict[str, Any] | None:
     try:
         body = json.loads(event.get("body") or "{}")
     except json.JSONDecodeError:
@@ -48,12 +48,12 @@ def _parse_body(event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return body if isinstance(body, dict) else None
 
 
-def create_order(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+def create_order(event: dict[str, Any], context: Any) -> dict[str, Any]:
     body = _parse_body(event)
     if body is None:
         return _response(400, {"message": "body must be a JSON object"})
 
-    items: List[Dict[str, Any]] = body.get("items") or []
+    items: list[dict[str, Any]] = body.get("items") or []
     if not items or not all(isinstance(i, dict) and i.get("sku") and int(i.get("qty", 0)) > 0 for i in items):
         return _response(400, {"message": "items must be a non-empty list of {sku, qty>0}"})
 
@@ -62,14 +62,14 @@ def create_order(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         "customerId": str(body.get("customerId") or "anonymous"),
         "items": [{"sku": str(i["sku"]), "qty": int(i["qty"])} for i in items],
         "status": "NEW",
-        "createdAt": datetime.utcnow().isoformat() + "Z",
+        "createdAt": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
     }
     table().put_item(Item=order)
     logger.info("created order %s", order["orderId"])
     return _response(201, order)
 
 
-def get_order(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+def get_order(event: dict[str, Any], context: Any) -> dict[str, Any]:
     order_id = (event.get("pathParameters") or {}).get("orderId")
     if not order_id:
         return _response(400, {"message": "orderId is required"})
@@ -79,14 +79,14 @@ def get_order(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     return _response(200, item)
 
 
-def list_orders(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+def list_orders(event: dict[str, Any], context: Any) -> dict[str, Any]:
     params = event.get("queryStringParameters") or {}
     try:
         limit = max(1, min(int(params.get("limit", "20")), 100))
     except ValueError:
         return _response(400, {"message": "limit must be an integer"})
 
-    scan_args: Dict[str, Any] = {"Limit": limit}
+    scan_args: dict[str, Any] = {"Limit": limit}
     if params.get("nextToken"):
         scan_args["ExclusiveStartKey"] = {"orderId": params["nextToken"]}
     result = table().scan(**scan_args)

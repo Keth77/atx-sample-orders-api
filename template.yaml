@@ -56,6 +56,7 @@ Resources:
     Properties:
       CodeUri: src/orders_api/
       Handler: app.create_order
+      Runtime: python3.13
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref OrdersTable
@@ -71,6 +72,7 @@ Resources:
     Properties:
       CodeUri: src/orders_api/
       Handler: app.get_order
+      Runtime: python3.13
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref OrdersTable
@@ -86,7 +88,7 @@ Resources:
     Properties:
       CodeUri: src/orders_api/
       Handler: app.list_orders
-      Runtime: python3.10       # deprecated 2026-10-31
+      Runtime: python3.12
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref OrdersTable
