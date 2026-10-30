@@ -16,5 +16,5 @@ phases:
     commands:
       - python -m pytest -q tests/unit
       - node --test tests/node/*.test.js
-      - cfn-lint template.yaml
+      - cfn-lint template.yaml cicd/pipeline.yaml
       - bash .atx/ci/atx-guard.sh

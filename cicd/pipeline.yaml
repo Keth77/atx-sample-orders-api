@@ -1,0 +1,411 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  CI/CD for the sample orders API (owned by the app, not by the ATX factory). Deploy this stack by hand once. It creates
+  the <AppName>-main pipeline (CodePipeline V2: Source -> Build -> Deploy), which deploys the app stack <AppName>-dev on
+  every push to main, and the <AppName>-pr check, which validates PRs (tests, cfn-lint, ATX guard). Stands in for the
+  pipeline an existing app already has. Delete the app stack <AppName>-dev first, then this one.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: { default: Required }
+        Parameters: [ConnectionArn]
+      - Label: { default: App }
+        Parameters: [RepositoryId, Branch, AppName]
+      - Label: { default: "ATX factory link (PR guard only)" }
+        Parameters: [AtxFactoryBucket, AtxBranchRegex]
+      - Label: { default: Build settings }
+        Parameters: [CodeBuildImage, LogRetentionDays]
+
+Parameters:
+  ConnectionArn:
+    Type: String
+    Description: ARN of the AVAILABLE CodeConnections GitHub connection (its GitHub App must have access to this repo)
+  RepositoryId:
+    Type: String
+    Default: Keth77/atx-sample-orders-api
+    Description: owner/name of this repo
+  Branch:
+    Type: String
+    Default: main
+  AppName:
+    Type: String
+    Default: atx-sample-orders-api
+    AllowedPattern: "[a-z][a-z0-9-]{2,30}"
+    Description: Prefix for the pipeline, projects and the app stack (<AppName>-dev)
+  AtxFactoryBucket:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /atx-factory/artifact-bucket
+    Description: >-
+      SSM parameter (written by the atx-factory stack) holding the factory bucket. The PR guard reads the ATX tools and
+      this repo's approved plan from it. The factory must be deployed first.
+  AtxBranchRegex:
+    Type: String
+    Default: "^atx/"
+    Description: Branches the PR guard treats as ATX branches
+  CodeBuildImage:
+    Type: String
+    Default: aws/codebuild/standard:7.0
+  LogRetentionDays:
+    Type: Number
+    Default: 7
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90]
+
+Resources:
+  EmptyBucketLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AWS::StackName}-empty-bucket"
+      RetentionInDays: !Ref LogRetentionDays
+
+  EmptyBucketRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: empty-bucket
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt EmptyBucketLogGroup.Arn
+              - Effect: Allow
+                Action: [s3:ListBucket, s3:ListBucketVersions]
+                Resource: !GetAtt ArtifactBucket.Arn
+              - Effect: Allow
+                Action: [s3:DeleteObject, s3:DeleteObjectVersion]
+                Resource: !Sub "${ArtifactBucket.Arn}/*"
+
+  EmptyBucketFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Empties a versioned S3 bucket when its custom resource is deleted
+      Runtime: python3.13
+      Handler: index.handler
+      Timeout: 600
+      Role: !GetAtt EmptyBucketRole.Arn
+      LoggingConfig:
+        LogGroup: !Ref EmptyBucketLogGroup
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+
+
+          def handler(event, context):
+              try:
+                  if event["RequestType"] == "Delete":
+                      bucket = boto3.resource("s3").Bucket(event["ResourceProperties"]["BucketName"])
+                      try:
+                          bucket.object_versions.delete()
+                      except bucket.meta.client.exceptions.NoSuchBucket:
+                          pass
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as exc:  # report, never hang the stack
+                  print(f"failed: {exc}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {}, reason=str(exc)[:200])
+
+  # ---------------------------------------------------------------- app CI/CD
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration: { Status: Enabled }
+
+  ArtifactBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [!GetAtt ArtifactBucket.Arn, !Sub "${ArtifactBucket.Arn}/*"]
+            Condition: { Bool: { "aws:SecureTransport": "false" } }
+
+  EmptyArtifactBucket:
+    Type: Custom::EmptyBucket
+    Properties:
+      ServiceToken: !GetAtt EmptyBucketFunction.Arn
+      BucketName: !Ref ArtifactBucket
+
+  BuildLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/codebuild/${AppName}-build"
+      RetentionInDays: !Ref LogRetentionDays
+
+  PrLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/codebuild/${AppName}-pr"
+      RetentionInDays: !Ref LogRetentionDays
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codebuild.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: build
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: [!GetAtt BuildLogGroup.Arn, !GetAtt PrLogGroup.Arn]
+              - Effect: Allow
+                Action: [s3:GetObject, s3:GetObjectVersion, s3:PutObject]
+                Resource: !Sub "${ArtifactBucket.Arn}/*"
+              - Effect: Allow
+                Action: [s3:GetBucketLocation, s3:ListBucket]
+                Resource: !GetAtt ArtifactBucket.Arn
+              - Sid: AtxFactoryReadOnly
+                Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${AtxFactoryBucket}/tools/*"
+                  - !Sub "arn:${AWS::Partition}:s3:::${AtxFactoryBucket}/plans/${RepositoryId}/*"
+              - Sid: UseGitHubConnection
+                Effect: Allow
+                Action:
+                  - codeconnections:GetConnectionToken
+                  - codeconnections:GetConnection
+                  - codeconnections:UseConnection
+                  - codestar-connections:GetConnectionToken
+                  - codestar-connections:GetConnection
+                  - codestar-connections:UseConnection
+                Resource: !Ref ConnectionArn
+
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub "${AppName}-build"
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Source: { Type: CODEPIPELINE, BuildSpec: buildspec-build.yml }
+      Artifacts: { Type: CODEPIPELINE }
+      LogsConfig:
+        CloudWatchLogs: { Status: ENABLED, GroupName: !Ref BuildLogGroup }
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: !Ref CodeBuildImage
+        EnvironmentVariables:
+          - { Name: ARTIFACT_BUCKET, Value: !Ref ArtifactBucket }
+      TimeoutInMinutes: 30
+
+  PrProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub "${AppName}-pr"
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Source:
+        Type: GITHUB
+        Location: !Sub "https://github.com/${RepositoryId}.git"
+        BuildSpec: buildspec-pr.yml
+        ReportBuildStatus: true
+        Auth: { Type: CODECONNECTIONS, Resource: !Ref ConnectionArn }
+      Triggers:
+        Webhook: true
+        FilterGroups:
+          - - { Type: EVENT, Pattern: "PULL_REQUEST_CREATED,PULL_REQUEST_UPDATED,PULL_REQUEST_REOPENED" }
+            - { Type: BASE_REF, Pattern: !Sub "^refs/heads/${Branch}$" }
+      Artifacts: { Type: NO_ARTIFACTS }
+      LogsConfig:
+        CloudWatchLogs: { Status: ENABLED, GroupName: !Ref PrLogGroup }
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: !Ref CodeBuildImage
+        EnvironmentVariables:
+          - { Name: ATX_BRANCH_REGEX, Value: !Ref AtxBranchRegex }
+          - { Name: ATX_TOOLS_URI, Value: !Sub "s3://${AtxFactoryBucket}/tools/atx-factory-tools.zip" }
+          - { Name: ATX_PLAN_URI, Value: !Sub "s3://${AtxFactoryBucket}/plans/${RepositoryId}/latest.json" }
+      TimeoutInMinutes: 30
+
+  # Service role for the <AppName>-dev app stack. That stack is created by the pipeline, not by this
+  # template: delete it BEFORE this stack, while this role still exists.
+  CloudFormationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: cloudformation.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: deploy-sample-app
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: cloudformation:CreateChangeSet
+                Resource: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31"
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "${ArtifactBucket.Arn}/*"
+              - Effect: Allow
+                Action: "lambda:*"
+                Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AppName}-*"
+              - Effect: Allow
+                Action:
+                  - lambda:CreateEventSourceMapping
+                  - lambda:GetEventSourceMapping
+                  - lambda:UpdateEventSourceMapping
+                  - lambda:DeleteEventSourceMapping
+                  - lambda:TagResource
+                Resource: "*"
+              - Effect: Allow
+                Action: "dynamodb:*"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppName}-*"
+                  - !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppName}-*/stream/*"
+              - Effect: Allow
+                Action: [dynamodb:DescribeStream, dynamodb:ListStreams, logs:DescribeLogGroups]
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:DeleteLogGroup
+                  - logs:PutRetentionPolicy
+                  - logs:DeleteRetentionPolicy
+                  - logs:TagResource
+                  - logs:UntagResource
+                  - logs:ListTagsForResource
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AppName}-*"
+              - Effect: Allow
+                Action: "apigateway:*"
+                Resource: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}::/*"
+              - Effect: Allow
+                Action: "events:*"
+                Resource: !Sub "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/${AppName}-*"
+              - Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:GetRole
+                  - iam:PassRole
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:GetRolePolicy
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppName}-*"
+
+  PipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codepipeline.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: pipeline
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject, s3:GetObjectVersion, s3:PutObject, s3:GetBucketVersioning, s3:ListBucket]
+                Resource: [!GetAtt ArtifactBucket.Arn, !Sub "${ArtifactBucket.Arn}/*"]
+              - Effect: Allow
+                Action: [codeconnections:UseConnection, codestar-connections:UseConnection]
+                Resource: !Ref ConnectionArn
+              - Effect: Allow
+                Action: [codebuild:StartBuild, codebuild:BatchGetBuilds]
+                Resource: !GetAtt BuildProject.Arn
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                Resource: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AppName}-*/*"
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt CloudFormationRole.Arn
+
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub "${AppName}-main"
+      PipelineType: V2
+      ExecutionMode: QUEUED
+      RoleArn: !GetAtt PipelineRole.Arn
+      ArtifactStore: { Type: S3, Location: !Ref ArtifactBucket }
+      Triggers:
+        - ProviderType: CodeStarSourceConnection
+          GitConfiguration:
+            SourceActionName: Source
+            Push:
+              - Branches: { Includes: [!Ref Branch] }
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId: { Category: Source, Owner: AWS, Provider: CodeStarSourceConnection, Version: "1" }
+              Configuration:
+                ConnectionArn: !Ref ConnectionArn
+                FullRepositoryId: !Ref RepositoryId
+                BranchName: !Ref Branch
+                OutputArtifactFormat: CODE_ZIP
+              OutputArtifacts: [{ Name: SourceOutput }]
+        - Name: Build
+          Actions:
+            - Name: TestAndPackage
+              ActionTypeId: { Category: Build, Owner: AWS, Provider: CodeBuild, Version: "1" }
+              Configuration: { ProjectName: !Ref BuildProject }
+              InputArtifacts: [{ Name: SourceOutput }]
+              OutputArtifacts: [{ Name: BuildOutput }]
+        - Name: Deploy
+          Actions:
+            - Name: Deploy
+              ActionTypeId: { Category: Deploy, Owner: AWS, Provider: CloudFormation, Version: "1" }
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                StackName: !Sub "${AppName}-dev"
+                TemplatePath: BuildOutput::packaged.yaml
+                Capabilities: CAPABILITY_IAM,CAPABILITY_AUTO_EXPAND
+                RoleArn: !GetAtt CloudFormationRole.Arn
+                ParameterOverrides: '{"Stage": "dev"}'
+              InputArtifacts: [{ Name: BuildOutput }]
+
+Outputs:
+  Pipeline:
+    Value: !Ref Pipeline
+  PrCheckName:
+    Description: Make this a required status check in the repo's ruleset
+    Value: !Sub "AWS CodeBuild ${AWS::Region} (${AppName}-pr)"
+  AppStack:
+    Description: Created by the pipeline, not by this stack. Delete it first.
+    Value: !Sub "${AppName}-dev"
