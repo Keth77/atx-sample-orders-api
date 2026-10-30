@@ -64,3 +64,5 @@ make test      # pytest + node --test + cfn-lint
 4. A human approves and merges. The app's own pipeline deploys `atx-sample-orders-api-dev`.
 5. Confirm the new runtimes:
    `aws lambda list-functions --query "Functions[?starts_with(FunctionName,'atx-sample-orders-api-dev')].[FunctionName,Runtime]"`
+6. Smoke-test a function. The API has **no public endpoint** (`DisableExecuteApiEndpoint`), so invoke Lambda directly:
+   `aws lambda invoke --function-name <HealthFn name from step 5> --payload '{}' --cli-binary-format raw-in-base64-out /dev/stdout`

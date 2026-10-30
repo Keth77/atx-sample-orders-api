@@ -34,6 +34,14 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/${AWS::StackName}"
       RetentionInDays: 7
 
+  OrdersApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      EndpointConfiguration:
+        Type: REGIONAL
+      DisableExecuteApiEndpoint: true   # no public URL: the demo is about the Lambda runtimes (invoke the functions directly)
+
   OrdersTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -63,6 +71,7 @@ Resources:
         Create:
           Type: Api
           Properties:
+            RestApiId: !Ref OrdersApi
             Path: /orders
             Method: post
 
@@ -78,6 +87,7 @@ Resources:
         Get:
           Type: Api
           Properties:
+            RestApiId: !Ref OrdersApi
             Path: /orders/{orderId}
             Method: get
 
@@ -94,6 +104,7 @@ Resources:
         List:
           Type: Api
           Properties:
+            RestApiId: !Ref OrdersApi
             Path: /orders
             Method: get
 
@@ -107,6 +118,7 @@ Resources:
         Health:
           Type: Api
           Properties:
+            RestApiId: !Ref OrdersApi
             Path: /health
             Method: get
 
@@ -139,8 +151,5 @@ Resources:
             Schedule: rate(1 day)
 
 Outputs:
-  ApiUrl:
-    Description: Orders API base URL
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
   OrdersTableName:
     Value: !Ref OrdersTable
