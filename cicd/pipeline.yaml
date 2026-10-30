@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   CI/CD for the sample orders API (owned by the app, not by the ATX factory). Deploy this stack by hand once. It creates
-  the <AppName>-main pipeline (CodePipeline V2: Source -> Build -> Deploy), which deploys the app stack <AppName>-dev on
+  the <AppName>-cicd pipeline (CodePipeline V2: Source -> Build -> Deploy), which deploys the app stack <AppName>-dev on
   every push to main, and the <AppName>-pr check, which validates PRs (tests, cfn-lint, ATX guard). Stands in for the
   pipeline an existing app already has. Delete the app stack <AppName>-dev first, then this one.
 
@@ -358,7 +358,7 @@ Resources:
   Pipeline:
     Type: AWS::CodePipeline::Pipeline
     Properties:
-      Name: !Sub "${AppName}-main"
+      Name: !Sub "${AppName}-cicd"
       PipelineType: V2
       ExecutionMode: QUEUED
       RoleArn: !GetAtt PipelineRole.Arn

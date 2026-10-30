@@ -34,7 +34,7 @@ aws cloudformation deploy --stack-name atx-sample-orders-api-cicd --template-fil
   --capabilities CAPABILITY_IAM --parameter-overrides ConnectionArn=<codeconnections-arn>
 ```
 
-- Push to `main` → pipeline `atx-sample-orders-api-main`: Source → Build → Deploy stack `atx-sample-orders-api-dev`
+- Push to `main` → pipeline `atx-sample-orders-api-cicd`: Source → Build → Deploy stack `atx-sample-orders-api-dev`
 - PR to `main` → CodeBuild `atx-sample-orders-api-pr` → status check on the PR (stack output `PrCheckName`)
 
 | Stack | Holds | Created by |
