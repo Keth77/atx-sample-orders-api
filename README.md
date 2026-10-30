@@ -29,7 +29,7 @@ The pipeline and PR check are created by the factory stack
 ([`infra/atx-factory.yaml`](https://github.com/Keth77/aws-atx-continuous-modernization/blob/main/infra/atx-factory.yaml),
 with `SampleAppRepositoryId` set), so this repo holds only code, buildspecs and `.atx/`.
 
-- Push to `main` → deploy stack `atx-sample-orders-api-dev` → manual approval → `atx-sample-orders-api-prod`
+- Push to `main` → build → deploy stack `atx-sample-orders-api-dev`
 - PR to `main` → CodeBuild `atx-sample-orders-api-pr` → status check on the PR
 
 Each app stack owns its Lambda log group, so deleting it leaves nothing behind. To enroll this repo and protect
