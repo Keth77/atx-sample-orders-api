@@ -1,14 +1,14 @@
 'use strict';
 
 // Logs newly inserted orders from the DynamoDB stream.
-// Uses CommonJS and callback-era patterns typical of Node.js 18 code.
+// Uses CommonJS, with modern optional chaining supported by Node.js 24.
 
 function summarize(record) {
-  const image = (record.dynamodb && record.dynamodb.NewImage) || {};
-  const items = (image.items && image.items.L) || [];
+  const image = record.dynamodb?.NewImage ?? {};
+  const items = image.items?.L ?? [];
   return {
-    orderId: image.orderId ? image.orderId.S : undefined,
-    customerId: image.customerId ? image.customerId.S : undefined,
+    orderId: image.orderId?.S,
+    customerId: image.customerId?.S,
     itemCount: items.length,
   };
 }
