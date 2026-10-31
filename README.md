@@ -5,9 +5,9 @@ A standard **API Gateway + Lambda + DynamoDB** app (AWS SAM) for proving the
 end to end before using it on real repos. Several functions deliberately run on **deprecated Lambda runtimes**.
 
 ```
-POST /orders      ─► CreateOrderFn (python3.9, Globals) ─┐
-GET  /orders/{id} ─► GetOrderFn    (python3.9, Globals) ─┼─► OrdersTable (DynamoDB) ──stream──► StreamNotifyFn (nodejs18.x)
-GET  /orders      ─► ListOrdersFn  (python3.10) ─────────┘          │
+POST /orders      ─► CreateOrderFn (python3.13) ─┐
+GET  /orders/{id} ─► GetOrderFn    (python3.13) ─┼─► OrdersTable (DynamoDB) ──stream──► StreamNotifyFn (nodejs18.x)
+GET  /orders      ─► ListOrdersFn  (python3.12) ─────────┘          │
 GET  /health      ─► HealthFn      (python3.13, current)            └── daily ──► LegacyReportFn (python3.9, excluded)
 ```
 
