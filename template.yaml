@@ -127,7 +127,7 @@ Resources:
     Properties:
       CodeUri: src/stream_notify/
       Handler: index.handler
-      Runtime: nodejs18.x       # deprecated 2025-09-01
+      Runtime: nodejs24.x       # deprecated 2025-09-01
       Events:
         OrdersStream:
           Type: DynamoDB

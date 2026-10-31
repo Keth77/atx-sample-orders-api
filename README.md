@@ -6,7 +6,7 @@ end to end before using it on real repos. Several functions deliberately run on 
 
 ```
 POST /orders      ─► CreateOrderFn (python3.9, Globals) ─┐
-GET  /orders/{id} ─► GetOrderFn    (python3.9, Globals) ─┼─► OrdersTable (DynamoDB) ──stream──► StreamNotifyFn (nodejs18.x)
+GET  /orders/{id} ─► GetOrderFn    (python3.9, Globals) ─┼─► OrdersTable (DynamoDB) ──stream──► StreamNotifyFn (nodejs24.x)
 GET  /orders      ─► ListOrdersFn  (python3.10) ─────────┘          │
 GET  /health      ─► HealthFn      (python3.13, current)            └── daily ──► LegacyReportFn (python3.9, excluded)
 ```
